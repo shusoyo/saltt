@@ -17,7 +17,7 @@ type env = {
 (* empty environment *)
 let empty_env : env = { ctx = []; globals = 0; hints = [] }
 
-(* extend environment: new entries added to the front of the list (corresponding to de Bruijn index increase) *)
+(* extend environment: new entries added to the front of the list *)
 let extend_ctx env entry : env = { env with ctx = entry :: env.ctx }
 
 (* Find a name's user supplied type signature. *)
@@ -26,16 +26,13 @@ let lookup_hint env (n : name) : decl_type option =
 
 (* lookup the type *)
 let lookup_type env (n : name) : (ty, error) result =
-  match
-    List.find_map
-      (fun entry ->
-        match entry with
-        | Decl decl when decl.decl_name = n -> Some decl.decl_type
-        | _ -> None)
-      env.ctx
-  with
-  | Some ty -> Ok ty
-  | None -> Error (EnvError ("name not found", Var (Free n)))
+  List.find_map
+    (fun entry ->
+      match entry with
+      | Decl decl when decl.decl_name = n -> Some decl.decl_type
+      | _ -> None)
+    env.ctx
+  |> Option.to_result ~none:(EnvError ("name not found", Var (Free n)))
 
 let looktup_def env (n : name) : term option =
   List.find_map

@@ -14,6 +14,11 @@
                   | {x : A | B}             - Dependent pair type
                   | (a, b)                  - Pair constructor
                   | let (x, y) = a in b     - Pair deconstruction
+                  | let x = a in b          - Let statement
+                  | Unit                    - Unit type
+                  | ()                      - Unit value
+                  | Sorry                   - An axiom 'sorry', inhabits all types
+                  | PrintMe                 - print context
 *)
 
 module Atom : sig
@@ -71,6 +76,16 @@ and term =
   | Pair of term * term
   (* Pair deconstruction `let (x, y) = a in b` *)
   | LetPair of term * term
+  (* An axiom 'sorry', inhabits all types *)
+  | Sorry
+  (* print context *)
+  | PrintMe
+  (* Let statement `let x = a in b` *)
+  | Let of term * term
+  (* Unit type `Unit` *)
+  | TyUnit
+  (* Unit value `()` *)
+  | Unit
 
 (* Auxiliary functions on syntax *)
 let bound_var (i : index) : term = Var (Bound i)
@@ -85,12 +100,12 @@ let rec strip (tm : term) : term =
                       Locally nameless substitution
    ----------------------------------------------------------------------- *)
 
-module LNR = struct
+module LocallyNameless = struct
   let rec open_term_aux (t : term) (rs : term list) (depth : int) : term =
     match t with
     | Var (Bound k) when k >= depth && k < depth + List.length rs ->
         List.nth rs (k - depth)
-    | TyType | Var _ | Bool _ | TyBool -> t
+    | TyType | Var _ | Bool _ | TyBool | Sorry | PrintMe | TyUnit | Unit -> t
     | Lam body -> Lam (open_term_aux body rs (depth + 1))
     | TyPi (t1, t2) ->
         TyPi (open_term_aux t1 rs depth, open_term_aux t2 rs (depth + 1))
@@ -109,6 +124,8 @@ module LNR = struct
         LetPair (open_term_aux t1 rs depth, open_term_aux t2 rs (depth + 2))
     | TySigma (t1, t2) ->
         TySigma (open_term_aux t1 rs depth, open_term_aux t2 rs (depth + 1))
+    | Let (t1, t2) ->
+        Let (open_term_aux t1 rs depth, open_term_aux t2 rs (depth + 1))
 
   let rec close_term_aux (t : term) (xs : name list) (n : int) : term =
     match t with
@@ -117,7 +134,7 @@ module LNR = struct
         | Some i -> bound_var (n + i)
         | None -> t
       end
-    | TyType | Var _ | Bool _ | TyBool -> t
+    | TyType | Var _ | Bool _ | TyBool | Sorry | PrintMe | TyUnit | Unit -> t
     | Lam body -> Lam (close_term_aux body xs (n + 1))
     | TyPi (t1, t2) ->
         TyPi (close_term_aux t1 xs n, close_term_aux t2 xs (n + 1))
@@ -134,11 +151,12 @@ module LNR = struct
         LetPair (close_term_aux t1 xs n, close_term_aux t2 xs (n + 2))
     | TySigma (t1, t2) ->
         TySigma (close_term_aux t1 xs n, close_term_aux t2 xs (n + 1))
+    | Let (t1, t2) -> Let (close_term_aux t1 xs n, close_term_aux t2 xs (n + 1))
 
   let rec subst (x : name) (u : term) (t : term) : term =
     match t with
     | Var (Free y) when y = x -> u
-    | Var _ | TyType | Bool _ | TyBool -> t
+    | Var _ | TyType | Bool _ | TyBool | Sorry | PrintMe | TyUnit | Unit -> t
     | Lam body -> Lam (subst x u body)
     | App (t1, t2) -> App (subst x u t1, subst x u t2)
     | TyPi (a, b) -> TyPi (subst x u a, subst x u b)
@@ -147,34 +165,15 @@ module LNR = struct
     | Pair (t1, t2) -> Pair (subst x u t1, subst x u t2)
     | LetPair (t1, t2) -> LetPair (subst x u t1, subst x u t2)
     | TySigma (t1, t2) -> TySigma (subst x u t1, subst x u t2)
-
-  let bind (x : name) (t : term) : term = close_term_aux t [ x ] 0
-
-  let bind_pair ((x, y) : name * name) (t : term) : term =
-    close_term_aux t [ y; x ] 0
-
-  let unbind_pair (t : term) : name * name * term =
-    let x = Atom.fresh "x" in
-    let y = Atom.fresh "y" in
-    (x, y, open_term_aux t [ free_var y; free_var x ] 0)
-
-  let unbind (t : term) : name * term =
-    let x = Atom.fresh "x" in
-    (x, open_term_aux t [ free_var x ] 0)
-
-  let unbind2 ((lhs, rhs) : term * term) : name * term * term =
-    let x = Atom.fresh "x" in
-    let f tm = open_term_aux tm [ free_var x ] 0 in
-    (x, f lhs, f rhs)
-
-  let instantiate (body : term) (arg : term) : term =
-    open_term_aux body [ arg ] 0
+    | Let (t1, t2) -> Let (subst x u t1, subst x u t2)
 
   (** Check if a term is locally closed (well-formed at level k) *)
   let rec is_lc_at (k : int) (t : term) : bool =
     match t with
     | Var (Bound i) -> i < k
-    | Var (Free _) | TyType | Bool _ | TyBool -> true
+    | Var (Free _) | TyType | Bool _ | TyBool | Sorry | PrintMe | TyUnit | Unit
+      ->
+        true
     | Lam body -> is_lc_at (k + 1) body
     | TyPi (a, b) -> is_lc_at k a && is_lc_at (k + 1) b
     | App (t1, t2) | Ann (t1, t2) -> is_lc_at k t1 && is_lc_at k t2
@@ -182,31 +181,35 @@ module LNR = struct
     | Pair (t1, t2) -> is_lc_at k t1 && is_lc_at k t2
     | LetPair (t1, t2) -> is_lc_at k t1 && is_lc_at (k + 2) t2
     | TySigma (t1, t2) -> is_lc_at k t1 && is_lc_at (k + 1) t2
+    | Let (t1, t2) -> is_lc_at k t1 && is_lc_at (k + 1) t2
 
   let is_lc t = is_lc_at 0 t
 
   (** Recursive structural equality that ignores all type annotations *)
-  let rec equal (t1 : term) (t2 : term) : bool =
+  let rec alpha_eq (t1 : term) (t2 : term) : bool =
     match (strip t1, strip t2) with
     | TyType, TyType -> true
     | Var v1, Var v2 -> v1 = v2
-    | App (f1, a1), App (f2, a2) -> equal f1 f2 && equal a1 a2
-    | Lam b1, Lam b2 -> equal b1 b2
-    | TyPi (a1, r1), TyPi (a2, r2) -> equal a1 a2 && equal r1 r2
+    | App (f1, a1), App (f2, a2) -> alpha_eq f1 f2 && alpha_eq a1 a2
+    | Lam b1, Lam b2 -> alpha_eq b1 b2
+    | TyPi (a1, r1), TyPi (a2, r2) -> alpha_eq a1 a2 && alpha_eq r1 r2
     | TyBool, TyBool -> true
     | Bool b1, Bool b2 -> b1 = b2
     | If (c1, t1, e1), If (c2, t2, e2) ->
-        equal c1 c2 && equal t1 t2 && equal e1 e2
-    | TySigma (a1, r1), TySigma (a2, r2) -> equal a1 a2 && equal r1 r2
-    | Pair (p1a, p1b), Pair (p2a, p2b) -> equal p1a p2a && equal p1b p2b
-    | LetPair (l1a, l1b), LetPair (l2a, l2b) -> equal l1a l2a && equal l1b l2b
+        alpha_eq c1 c2 && alpha_eq t1 t2 && alpha_eq e1 e2
+    | TySigma (a1, r1), TySigma (a2, r2) -> alpha_eq a1 a2 && alpha_eq r1 r2
+    | Pair (p1a, p1b), Pair (p2a, p2b) -> alpha_eq p1a p2a && alpha_eq p1b p2b
+    | LetPair (l1a, l1b), LetPair (l2a, l2b) ->
+        alpha_eq l1a l2a && alpha_eq l1b l2b
     | _ -> false
 
   (** Free variables collection *)
   let rec fv (t : term) : name list =
     match t with
     | Var (Free x) -> [ x ]
-    | Var (Bound _) | TyType | TyBool | Bool _ -> []
+    | Var (Bound _) | TyType | TyBool | Bool _ | Sorry | PrintMe | TyUnit | Unit
+      ->
+        []
     | App (t1, t2) -> fv t1 @ fv t2
     | Lam body -> fv body
     | TyPi (a, b) -> fv a @ fv b
@@ -215,32 +218,38 @@ module LNR = struct
     | Pair (t1, t2) -> fv t1 @ fv t2
     | LetPair (t1, t2) -> fv t1 @ fv t2
     | TySigma (t1, t2) -> fv t1 @ fv t2
-
-  (** Internal string representation for debugging (shows indices) *)
-  let rec to_string (t : term) : string =
-    match t with
-    | TyType -> "Type"
-    | Var (Bound i) -> "#" ^ string_of_int i
-    | Var (Free x) -> x.name ^ "_" ^ string_of_int x.id
-    | Lam body -> "λ. " ^ to_string body
-    | App (t1, t2) -> "(" ^ to_string t1 ^ " " ^ to_string t2 ^ ")"
-    | TyPi (a, b) -> "(Π " ^ to_string a ^ ". " ^ to_string b ^ ")"
-    | Ann (t, ty) -> "(" ^ to_string t ^ " : " ^ to_string ty ^ ")"
-    | TyBool -> "Bool"
-    | Bool b -> string_of_bool b
-    | If (tm1, tm2, tm3) ->
-        "if " ^ to_string tm1 ^ " then " ^ to_string tm2 ^ " else "
-        ^ to_string tm3
-    | Pair (t1, t2) -> "(" ^ to_string t1 ^ ", " ^ to_string t2 ^ ")"
-    | LetPair (t1, t2) -> "let (x, y) = " ^ to_string t1 ^ " in " ^ to_string t2
-    | TySigma (t1, t2) -> "{x : " ^ to_string t1 ^ " | " ^ to_string t2 ^ "}"
+    | Let (t1, t2) -> fv t1 @ fv t2
 end
+
+open LocallyNameless
+
+let bind (x : name) (t : term) : term = close_term_aux t [ x ] 0
+
+let bind_pair ((x, y) : name * name) (t : term) : term =
+  close_term_aux t [ y; x ] 0
+
+let unbind_pair (t : term) : name * name * term =
+  let x = Atom.fresh "x" in
+  let y = Atom.fresh "y" in
+  (x, y, open_term_aux t [ free_var y; free_var x ] 0)
+
+let unbind (t : term) : name * term =
+  let x = Atom.fresh "x" in
+  (x, open_term_aux t [ free_var x ] 0)
+
+let unbind2 ((lhs, rhs) : term * term) : name * term * term =
+  let x = Atom.fresh "x" in
+  let f tm = open_term_aux tm [ free_var x ] 0 in
+  (x, f lhs, f rhs)
+
+let instantiate (body : term) (arg : term) : term = open_term_aux body [ arg ] 0
+let alpha_eq = alpha_eq
 
 (* -----------------------------------------------------------------------
                       Named AST and conversion
    ----------------------------------------------------------------------- *)
 module NamedAst = struct
-  open LNR
+  open LocallyNameless
 
   type n_ty = n_term
 
@@ -248,15 +257,20 @@ module NamedAst = struct
     | TyType
     | Var of name
     | App of n_term * n_term
-    | Lam of name * n_term
-    | TyPi of name * n_ty * n_ty
+    | Lam of (name * n_term)
+    | TyPi of n_ty * (name * n_ty)
     | Ann of n_term * n_ty
     | TyBool
     | Bool of bool
     | If of n_term * n_term * n_term
-    | TySigma of name * n_ty * n_ty
+    | TySigma of n_ty * (name * n_ty)
     | Pair of n_term * n_term
     | LetPair of n_term * (name * name * n_term)
+    | Let of n_term * (name * n_term)
+    | TyUnit
+    | Unit
+    | Sorry
+    | PrintMe
 
   exception VariableNotFound of name
 
@@ -269,14 +283,14 @@ module NamedAst = struct
     | Lam (x, b) ->
         let b' = to_term b in
         Lam (bind x b')
-    | TyPi (x, a, b) ->
+    | TyPi (a, (x, b)) ->
         let a', b' = (to_term a, to_term b) in
         TyPi (a', bind x b')
     | Ann (t, ty) -> Ann (to_term t, to_term ty)
     | TyBool -> TyBool
     | Bool b -> Bool b
     | If (tm1, tm2, tm3) -> If (to_term tm1, to_term tm2, to_term tm3)
-    | TySigma (x, a, b) ->
+    | TySigma (a, (x, b)) ->
         let a', b' = (to_term a, to_term b) in
         TySigma (a', bind x b')
     | Pair (t1, t2) -> Pair (to_term t1, to_term t2)
@@ -284,50 +298,35 @@ module NamedAst = struct
         let t1' = to_term t1 in
         let t2' = to_term t2 in
         LetPair (t1', bind_pair (x, y) t2')
-
-  (** Pretty print Named AST *)
-  let rec to_string (nt : n_term) : string =
-    match nt with
-    | TyType -> "Type"
-    | Var x -> Atom.to_string x
-    | App (t1, t2) -> "(" ^ to_string t1 ^ " " ^ to_string t2 ^ ")"
-    | Lam (x, b) -> "λ" ^ Atom.to_string x ^ ". " ^ to_string b
-    | TyPi (x, a, b) ->
-        "(" ^ Atom.to_string x ^ " : " ^ to_string a ^ ") -> " ^ to_string b
-    | Ann (t, ty) -> "(" ^ to_string t ^ " : " ^ to_string ty ^ ")"
-    | TyBool -> "Bool"
-    | Bool b -> string_of_bool b
-    | If (tm1, tm2, tm3) ->
-        "if " ^ to_string tm1 ^ " then " ^ to_string tm2 ^ " else "
-        ^ to_string tm3
-    | TySigma (x, a, b) ->
-        "{" ^ Atom.to_string x ^ " : " ^ to_string a ^ " | " ^ to_string b ^ "}"
-    | Pair (t1, t2) -> "(" ^ to_string t1 ^ ", " ^ to_string t2 ^ ")"
-    | LetPair (t1, (x, y, t2)) ->
-        "let (" ^ Atom.to_string x ^ ", " ^ Atom.to_string y ^ ") = "
-        ^ to_string t1 ^ " in " ^ to_string t2
+    | Let (t1, (x, t2)) ->
+        let t1' = to_term t1 in
+        let t2' = to_term t2 in
+        Let (t1', bind x t2')
+    | TyUnit -> TyUnit
+    | Unit -> Unit
+    | Sorry -> Sorry
+    | PrintMe -> PrintMe
 end
 
 (* -----------------------------------------------------------------------------
                               Modules and declarations
    ----------------------------------------------------------------------------- *)
 
-type decl_type = { decl_name : name; decl_type : ty }
+type type_decl = { decl_name : name; decl_type : ty }
 
 type entry =
-  (* type declaration *)
-  | Decl of decl_type
-  (* definition *)
-  | Def of name * term
+  | Decl of type_decl  (** type declaration *)
+  | Def of name * term  (** definition [name * term] *)
 
-let make_decl_entry name decl_type : entry =
-  Decl { decl_name = name; decl_type }
+(** [decl_entry name decl_type] make a declaration entry
+    [Decl { decl_name = name; decl_type }] *)
+let decl_entry name decl_type : entry = Decl { decl_name = name; decl_type }
 
-type module_name = string
-type module_import = module_name
+type package_name = string
+type package_import = PackageImport of package_name
 
-type modules = {
-  name : module_name;
-  imports : module_import list;
+type package = {
+  name : package_name;
+  imports : package_import list;
   entries : entry list;
 }

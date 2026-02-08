@@ -1,14 +1,5 @@
 open Syntax
 
-(** error message quoting *)
-type err_quot =
-  | DS of string  (** string *)
-  | DT of term  (** term *)
-  | DN of name  (** name *)
-  | DD of type_decl
-
-type error = err_quot list
-
 (** Internal string representation for debugging (shows indices) *)
 let rec string_of_term (t : term) : string =
   match t with

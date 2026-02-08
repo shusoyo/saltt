@@ -68,7 +68,7 @@ and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
   | Lam body -> begin
       match ty' with
       | TyPi (param_ty, ret_ty) ->
-          let x, body', ret_ty' = unbind2 (body, ret_ty) in
+          let x, body', ret_ty' = unbind_both body ret_ty in
           let env' = extend_ctx env (decl_entry x param_ty) in
           check_type env' body' ret_ty'
       | _ -> Error [ DS "when checking [Lam body], ty is not Typi"; DT ty ]
@@ -92,9 +92,9 @@ and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
       | _ ->
           Error [ DS "when checking [Pair fst snd], ty is not TySigma"; DT ty ]
     end
-  | LetPair (pair_term, body) -> begin
+  | LetPair (pair_term, body) ->
       let* pair_ty = infer_type env pair_term in
-      match pair_ty with
+      begin match pair_ty with
       | TySigma (fst_ty, snd_ty) ->
           let x, y, body' = unbind_pair body in
           let snd_ty' = instantiate snd_ty (free_var x) in
@@ -102,7 +102,7 @@ and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
           let env'' = extend_ctx env' (decl_entry y snd_ty') in
           check_type env'' body' ty'
       | _ -> Error [ DS "Expected TySigma type in LetPair"; DT pair_ty ]
-    end
+      end
   (* C-Let *)
   | Let (a, body) ->
       let* a_type = infer_type env a in
@@ -111,8 +111,7 @@ and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
       check_type env' body' ty'
   | _ ->
       let* inferred_ty = infer_type env tm in
-      if alpha_eq inferred_ty ty' then
-        Ok ()
+      if alpha_eq inferred_ty ty' then Ok ()
       else
         Error
           [
@@ -122,6 +121,10 @@ and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
 (** [tc_Type env t] is abbreviation for [check_type env t TyType] *)
 and tc_Type (env : env) (t : term) : (unit, error) result =
   check_type env t TyType
+
+(* -----------------------------------------------------------------------
+                      Module (Package) type checking
+   ----------------------------------------------------------------------- *)
 
 type hint_or_ctx = AddHints of type_decl | AddCtx of entry list
 
@@ -163,7 +166,7 @@ let type_check_entry (env : env) (entry : entry) : (hint_or_ctx, error) result =
             ]
     end
 
-let type_check_package (env : env) (pkgs : package list) (pkg : package) :
+let type_check_package env (pkgs : packages) (pkg : package) :
     (package, error) result =
   let is_imported x = List.mem (PackageImport x.name) pkg.imports in
   let imported_pkgs = List.filter is_imported pkgs in
@@ -185,8 +188,7 @@ let type_check_package (env : env) (pkgs : package list) (pkg : package) :
   in
   Ok { pkg with entries = checked_entries }
 
-let type_check_packages (env : env) (pkgs : package list) :
-    (package list, error) result =
+let type_check_packages env (pkgs : packages) : (packages, error) result =
   List.fold_left
     (fun acc_res pkg ->
       let* defs = acc_res in

@@ -1,34 +1,4 @@
-(* -----------------------------------------------------------------------
-      Core dependently typed lambda calculus language syntax
-   ----------------------------------------------------------------------- 
-
-    a, A, b, B ::=  x                       - Variable
-                  | A B                     - Application
-                  | λx:A. b                 - Lambda abstraction
-                  | (x: A) -> B             - Dependent function type (Πx:A. B)
-                  | Type                    - Universe type
-                  | (t : A)                 - Type annotation
-                  | Bool                    - Bool type
-                  | True | False            - Bool values
-                  | if a then a else a      - If expression 
-                  | {x : A | B}             - Dependent pair type
-                  | (a, b)                  - Pair constructor
-                  | let (x, y) = a in b     - Pair deconstruction
-                  | let x = a in b          - Let statement
-                  | Unit                    - Unit type
-                  | ()                      - Unit value
-                  | Sorry                   - An axiom 'sorry', inhabits all types
-                  | PrintMe                 - print context
-*)
-
-module Atom : sig
-  type t = { name : string; id : int }
-
-  val fresh : string -> t
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val to_string : t -> string
-end = struct
+module Atom = struct
   type t = { name : string; id : int }
 
   let counter = ref 0
@@ -41,6 +11,10 @@ end = struct
   let compare a b = compare a.id b.id
   let to_string a = a.name ^ "_" ^ string_of_int a.id
 end
+
+(* -----------------------------------------------------------------------
+        Core dependently typed lambda calculus language syntax
+   -----------------------------------------------------------------------  *)
 
 type index = int
 type name = Atom.t
@@ -171,9 +145,8 @@ module LocallyNameless = struct
   let rec is_lc_at (k : int) (t : term) : bool =
     match t with
     | Var (Bound i) -> i < k
-    | Var (Free _) | TyType | Bool _ | TyBool | Sorry | PrintMe | TyUnit | Unit
-      ->
-        true
+    | Var (Free _) | TyType | Bool _ | TyBool | TyUnit | Unit -> true
+    | Sorry | PrintMe -> true
     | Lam body -> is_lc_at (k + 1) body
     | TyPi (a, b) -> is_lc_at k a && is_lc_at (k + 1) b
     | App (t1, t2) | Ann (t1, t2) -> is_lc_at k t1 && is_lc_at k t2
@@ -189,18 +162,24 @@ module LocallyNameless = struct
   let rec alpha_eq (t1 : term) (t2 : term) : bool =
     match (strip t1, strip t2) with
     | TyType, TyType -> true
+    | TyBool, TyBool -> true
+    | TyUnit, TyUnit -> true
+    | Unit, Unit -> true
+    | Sorry, Sorry -> true
+    | PrintMe, PrintMe -> true
+    | Bool b1, Bool b2 -> b1 = b2
     | Var v1, Var v2 -> v1 = v2
+    (* nested *)
     | App (f1, a1), App (f2, a2) -> alpha_eq f1 f2 && alpha_eq a1 a2
     | Lam b1, Lam b2 -> alpha_eq b1 b2
     | TyPi (a1, r1), TyPi (a2, r2) -> alpha_eq a1 a2 && alpha_eq r1 r2
-    | TyBool, TyBool -> true
-    | Bool b1, Bool b2 -> b1 = b2
     | If (c1, t1, e1), If (c2, t2, e2) ->
         alpha_eq c1 c2 && alpha_eq t1 t2 && alpha_eq e1 e2
     | TySigma (a1, r1), TySigma (a2, r2) -> alpha_eq a1 a2 && alpha_eq r1 r2
     | Pair (p1a, p1b), Pair (p2a, p2b) -> alpha_eq p1a p2a && alpha_eq p1b p2b
     | LetPair (l1a, l1b), LetPair (l2a, l2b) ->
         alpha_eq l1a l2a && alpha_eq l1b l2b
+    | Let (l1a, l1b), Let (l2a, l2b) -> alpha_eq l1a l2a && alpha_eq l1b l2b
     | _ -> false
 
   (** Free variables collection *)
@@ -224,25 +203,41 @@ end
 open LocallyNameless
 
 let bind (x : name) (t : term) : term = close_term_aux t [ x ] 0
+let binds (xs : name list) (t : term) : term = close_term_aux t (List.rev xs) 0
 
-let bind_pair ((x, y) : name * name) (t : term) : term =
-  close_term_aux t [ y; x ] 0
+let unbind (t : term) : name * term =
+  let x = Atom.fresh "x" in
+  (x, open_term_aux t [ free_var x ] 0)
+
+let unbinds (t : term) (n : int) : name list * term =
+  let xs = List.init n (fun _ -> Atom.fresh "x") in
+  (xs, open_term_aux t List.(rev (map free_var xs)) 0)
+
+(** [instantiate body arg] *)
+let instantiate (body : term) (arg : term) : term = open_term_aux body [ arg ] 0
+
+let instantiates (body : term) (arg : term list) : term =
+  open_term_aux body (List.rev arg) 0
+
+let bind_pair ((x, y) : name * name) (t : term) : term = binds [ x; y ] t
 
 let unbind_pair (t : term) : name * name * term =
   let x = Atom.fresh "x" in
   let y = Atom.fresh "y" in
   (x, y, open_term_aux t [ free_var y; free_var x ] 0)
 
-let unbind (t : term) : name * term =
+let unbind_both (lhs : term) (rhs : term) : name * term * term =
   let x = Atom.fresh "x" in
-  (x, open_term_aux t [ free_var x ] 0)
+  let fvx = free_var x in
+  (x, instantiate lhs fvx, instantiate rhs fvx)
 
-let unbind2 ((lhs, rhs) : term * term) : name * term * term =
+let unbind_pair_both (lhs : term) (rhs : term) =
   let x = Atom.fresh "x" in
-  let f tm = open_term_aux tm [ free_var x ] 0 in
-  (x, f lhs, f rhs)
+  let y = Atom.fresh "y" in
+  ( (x, y),
+    ( open_term_aux lhs [ free_var y; free_var x ] 0,
+      open_term_aux rhs [ free_var y; free_var x ] 0 ) )
 
-let instantiate (body : term) (arg : term) : term = open_term_aux body [ arg ] 0
 let alpha_eq = alpha_eq
 
 (* -----------------------------------------------------------------------
@@ -330,3 +325,5 @@ type package = {
   imports : package_import list;
   entries : entry list;
 }
+
+type packages = package list

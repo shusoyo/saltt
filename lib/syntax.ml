@@ -70,6 +70,31 @@ let free_var (x : name) : term = Var (Free x)
 let rec strip (tm : term) : term =
   match tm with Ann (t_inner, _) -> strip t_inner | _ -> tm
 
+(* -----------------------------------------------------------------------------
+                              Modules and declarations
+   ----------------------------------------------------------------------------- *)
+
+type type_decl = { decl_name : name; decl_type : ty }
+
+type entry =
+  | Decl of type_decl  (** type declaration *)
+  | Def of name * term  (** definition [name * term] *)
+
+(** [decl_entry name decl_type] make a declaration entry
+    [Decl { decl_name = name; decl_type }] *)
+let decl_entry name decl_type : entry = Decl { decl_name = name; decl_type }
+
+type package_name = string
+type package_import = PackageImport of package_name
+
+type package = {
+  name : package_name;
+  imports : package_import list;
+  entries : entry list;
+}
+
+type packages = package list
+
 (* -----------------------------------------------------------------------
                       Locally nameless substitution
    ----------------------------------------------------------------------- *)
@@ -239,91 +264,3 @@ let unbind_pair_both (lhs : term) (rhs : term) =
       open_term_aux rhs [ free_var y; free_var x ] 0 ) )
 
 let alpha_eq = alpha_eq
-
-(* -----------------------------------------------------------------------
-                      Named AST and conversion
-   ----------------------------------------------------------------------- *)
-module NamedAst = struct
-  open LocallyNameless
-
-  type n_ty = n_term
-
-  and n_term =
-    | TyType
-    | Var of name
-    | App of n_term * n_term
-    | Lam of (name * n_term)
-    | TyPi of n_ty * (name * n_ty)
-    | Ann of n_term * n_ty
-    | TyBool
-    | Bool of bool
-    | If of n_term * n_term * n_term
-    | TySigma of n_ty * (name * n_ty)
-    | Pair of n_term * n_term
-    | LetPair of n_term * (name * name * n_term)
-    | Let of n_term * (name * n_term)
-    | TyUnit
-    | Unit
-    | Sorry
-    | PrintMe
-
-  exception VariableNotFound of name
-
-  (** Convert Named AST to Locally Nameless Term *)
-  let rec to_term (nt : n_term) : term =
-    match nt with
-    | TyType -> TyType
-    | Var x -> free_var x
-    | App (t1, t2) -> App (to_term t1, to_term t2)
-    | Lam (x, b) ->
-        let b' = to_term b in
-        Lam (bind x b')
-    | TyPi (a, (x, b)) ->
-        let a', b' = (to_term a, to_term b) in
-        TyPi (a', bind x b')
-    | Ann (t, ty) -> Ann (to_term t, to_term ty)
-    | TyBool -> TyBool
-    | Bool b -> Bool b
-    | If (tm1, tm2, tm3) -> If (to_term tm1, to_term tm2, to_term tm3)
-    | TySigma (a, (x, b)) ->
-        let a', b' = (to_term a, to_term b) in
-        TySigma (a', bind x b')
-    | Pair (t1, t2) -> Pair (to_term t1, to_term t2)
-    | LetPair (t1, (x, y, t2)) ->
-        let t1' = to_term t1 in
-        let t2' = to_term t2 in
-        LetPair (t1', bind_pair (x, y) t2')
-    | Let (t1, (x, t2)) ->
-        let t1' = to_term t1 in
-        let t2' = to_term t2 in
-        Let (t1', bind x t2')
-    | TyUnit -> TyUnit
-    | Unit -> Unit
-    | Sorry -> Sorry
-    | PrintMe -> PrintMe
-end
-
-(* -----------------------------------------------------------------------------
-                              Modules and declarations
-   ----------------------------------------------------------------------------- *)
-
-type type_decl = { decl_name : name; decl_type : ty }
-
-type entry =
-  | Decl of type_decl  (** type declaration *)
-  | Def of name * term  (** definition [name * term] *)
-
-(** [decl_entry name decl_type] make a declaration entry
-    [Decl { decl_name = name; decl_type }] *)
-let decl_entry name decl_type : entry = Decl { decl_name = name; decl_type }
-
-type package_name = string
-type package_import = PackageImport of package_name
-
-type package = {
-  name : package_name;
-  imports : package_import list;
-  entries : entry list;
-}
-
-type packages = package list

@@ -1,3 +1,8 @@
 (library
  (name saltt)
- (modules syntax env typecheck pp equality parser))
+ (modules syntax env typecheck pp equality lexer parser raw))
+
+(ocamllex lexer)
+
+(menhir
+ (modules parser))

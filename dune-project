@@ -1,5 +1,7 @@
 (lang dune 3.21)
 
+(using menhir 3.0)
+
 (name saltt)
 
 (generate_opam_files true)

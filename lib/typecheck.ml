@@ -1,6 +1,7 @@
 open Env
 open Pp
 open Syntax
+open Equality
 
 (* -----------------------------------------------------------------------
                       Bidirectional type checking
@@ -63,7 +64,7 @@ let rec infer_type (env : env) (tm : term) : (ty, error) result =
   | _ -> Error [ DS "Must have a type annotation for"; DT tm ]
 
 and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
-  let ty' = strip ty in
+  let ty' = whnf env ty in
   match tm with
   | Lam body -> begin
       match ty' with
@@ -111,12 +112,7 @@ and check_type (env : env) (tm : term) (ty : ty) : (unit, error) result =
       check_type env' body' ty'
   | _ ->
       let* inferred_ty = infer_type env tm in
-      if alpha_eq inferred_ty ty' then Ok ()
-      else
-        Error
-          [
-            DS "Types [ty] and [inferred_ty] don't match"; DT ty; DT inferred_ty;
-          ]
+      equate env inferred_ty ty'
 
 (** [tc_Type env t] is abbreviation for [check_type env t TyType] *)
 and tc_Type (env : env) (t : term) : (unit, error) result =

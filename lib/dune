@@ -1,0 +1,6 @@
+(library
+ (name saltt)
+ (modules common syntax env evaluation pp raw value parser)
+ (libraries oscar)
+ (preprocess
+  (pps ppx_deriving.show)))

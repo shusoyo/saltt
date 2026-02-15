@@ -1,28 +1,32 @@
 (lang dune 3.21)
 
-(using menhir 3.0)
-
 (name saltt)
 
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github shusoyo/saltt))
 
-(authors "Author Name <author@example.com>")
+(authors "shusoyo")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "shusoyo")
 
 (license LICENSE)
 
-(documentation https://url/to/documentation)
+(pin
+ (url "git+https://github.com/shusoyo/oscar.git")
+ (package
+  (name oscar)))
 
 (package
  (name saltt)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends ocaml)
+ (synopsis "A salt flavored type theory")
+ (description "saltt is a salt flavored type theory in OCaml.")
+ (depends
+  (ocaml
+   (>= 5.0.0))
+  (dune
+   (>= 3.21))
+  oscar)
  (tags
-  ("add topics" "to describe" your project)))
-
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
+  ("type-theory" "ocaml")))

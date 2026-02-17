@@ -4,9 +4,7 @@ open Parser
 open Evaluation
 open Elaboration
 open Context
-module R = Raw
-module S = Syntax
-module V = Value
+open Pretty
 
 let ex0 =
   "-- the identity function\n\
@@ -51,17 +49,16 @@ let get_raw file = file |> make_input |> parser.run |> Result.get_ok |> snd
 let test_unit test =
   let open Result in
   let raw = test |> get_raw in
-  Printf.printf "Raw term:\n%s\n" (R.to_string raw);
-  Printf.printf "Raw term:\n%s\n" (R.show_term raw);
+  Printf.printf "Raw term:\n%s\n" (raw_to_string raw);
+  (* Printf.printf "Raw term:\n%s\n" (R.show_term raw); *)
   match raw |> infer_type empty_ctx with
   | Ok (tm, ty) ->
       let tm, ty = raw |> infer_type empty_ctx |> get_ok in
-      Printf.printf "inferred type:\n%s\n" (Value.to_string ty);
       (* Printf.printf "inferred type:\n%s\n" (Value.show_ty ty); *)
-      Printf.printf "core term:\n%s\n" (S.to_string tm);
+      Printf.printf "core term:\n%s\n" (syntax_to_string tm);
       (* Printf.printf "core term:\n%s\n" (S.show_term tm); *)
       let norm = normalize [] tm in
-      Printf.printf "normalized term:\n%s\n" (S.to_string norm)
+      Printf.printf "normalized term:\n%s\n" (syntax_to_string norm)
       (* Printf.printf "normalized term:\n%s\n" (S.show_term norm) *)
   | Error msg -> Printf.printf "%s\n" msg
 

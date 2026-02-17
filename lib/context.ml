@@ -23,5 +23,7 @@ let define (x : name) (t : value) (a : ty) (ctx : ctx) : ctx =
   }
 
 let report ctx raw msg =
-  Printf.sprintf "Error:\n  %s\nRaw term:\n  %s\nCtx:\n  %s\n" msg
-    (Raw.show_term raw) (show_ctx ctx)
+  Error
+    (Format.asprintf
+       {|@[<v>@{<red>Error:@}@,  %s@,@,@[<v 2>Raw term:@,%a@]@,@,@[<v 2>Ctx:@,%a@]@]|}
+       msg Raw.pp_term raw pp_ctx ctx)

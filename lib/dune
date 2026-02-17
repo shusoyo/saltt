@@ -1,6 +1,15 @@
 (library
  (name saltt)
- (modules common syntax evaluation raw value parser elaboration context)
+ (modules
+  common
+  syntax
+  evaluation
+  raw
+  value
+  parser
+  elaboration
+  context
+  pretty)
  (libraries oscar)
  (preprocess
   (pps ppx_deriving.show)))

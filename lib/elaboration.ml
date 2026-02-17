@@ -52,10 +52,12 @@ let rec check_type ctx (raw : R.term) (ty : ty) : (term, string) result =
       let* tm, t_ty = infer_type ctx raw in
       if conv ctx.level t_ty ty then Ok tm
       else
-        Error
-          (Printf.sprintf
-             "type mismatch\nexpected type:\n  %s\ninferred type:\n  %s\n"
-             (Value.to_string ty) (Value.to_string t_ty))
+        report ctx raw
+          (Format.asprintf
+             "@[<v>type mismatch:@,\
+             \  @[<v 2>expected type:@ %a@]@,\
+             \  @[<v 2>inferred type:@ %a@]@]"
+             pp_value ty pp_value t_ty)
 
 and infer_type ctx (raw : R.term) : (term * ty, string) result =
   match raw with
@@ -66,9 +68,12 @@ and infer_type ctx (raw : R.term) : (term * ty, string) result =
       Γ ⊢ x ⇒ A
   *)
   | R.Var name ->
-      let f i (k, v) = if k = name then Some (Var (Ix i), v) else None in
+      let f i (k, v) = if k = name then Some (i, v) else None in
       let res = List.find_mapi f ctx.types in
-      res |> Option.to_result ~none:(report ctx raw ("var not found: " ^ name))
+      begin match res with
+      | Some (i, ty) -> Ok (Var (Ix i), ty)
+      | None -> report ctx raw ("var not found: " ^ name)
+      end
   (*
     I-universe :
 
@@ -90,11 +95,11 @@ and infer_type ctx (raw : R.term) : (term * ty, string) result =
           let* a_tm = check_type ctx a x_type in
           Ok (App (f_tm, a_tm), body_clos $$ eval ctx.env a_tm)
       | _ ->
-          Error
-            (Printf.sprintf "Expected a function type, but inferred: \n %s\n"
-               (Value.to_string f_ty))
+          report ctx raw
+            (Format.asprintf "Expected a function type, but inferred: \n %a\n"
+               Value.pp_value f_ty)
       end
-  | R.Lam _ -> Error "Can't infer type for lambda expression"
+  | R.Lam _ -> report ctx raw "Can't infer type for lambda expression"
   (*
     I-Pi
       Γ ⊢ A ⇐ Universe

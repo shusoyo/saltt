@@ -34,8 +34,7 @@ let rec quote (lvl : level) (value : value) : term =
   | VLam (name, f_clos) ->
       let var = VVar lvl in
       Lam (name, quote (next_level lvl) (f_clos $$ var))
-  | VPi (name, a_type, f_clos) ->
-      let a_type_val = a_type in
+  | VPi (name, a_type_val, f_clos) ->
       let var = VVar lvl in
       Pi (name, quote lvl a_type_val, quote (next_level lvl) (f_clos $$ var))
   | VUniverse -> Universe
@@ -47,16 +46,14 @@ let normalize (env : env) (tm : term) : term = quote (length env) (eval env tm)
 let rec conv (lvl : level) (a_val : value) (b_val : value) : bool =
   match (a_val, b_val) with
   | VUniverse, VUniverse -> true
-  | VPi (_, a_type, f_clos), VPi (_, b_type, g_clos) ->
-      let a_type_val = a_type in
-      let b_type_val = b_type in
+  | VPi (_, a_type_val, f_clos), VPi (_, b_type_val, g_clos) ->
       let var = VVar lvl in
       conv lvl a_type_val b_type_val
       && conv (next_level lvl) (f_clos $$ var) (g_clos $$ var)
   | VLam (_, f_clos), VLam (_, g_clos) ->
       let var = VVar lvl in
       conv (next_level lvl) (f_clos $$ var) (g_clos $$ var)
-  (* eta conversion checking : 
+  (* eta conversion checking : (Extensional Conversion) 
         (\x. g x) ≡ g `or` g ≡ (\x. g x) *)
   | VLam (_, f_clos), _ ->
       let var = VVar lvl in

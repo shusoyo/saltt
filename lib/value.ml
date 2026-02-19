@@ -13,17 +13,21 @@ type env = value list
     environment when meet the binder *)
 and closure = Closure of env * term
 
+and spine = value list
+
 (* value *)
 and ty = value
+and neutral = NVar of level | NMeta of meta_var
 
 and value =
-  | VVar of level  (** neutral value *)
-  | VApp of value * value  (** neutral value *)
+  | VNe of neutral * spine
   | VLam of name * closure
   | VPi of name * ty * closure
   | VUniverse
 [@@deriving show]
 
-let length (env : env) : level = Lvl (List.length env)
+let vvar x = VNe (NVar x, [])
+let vmeta x = VNe (NMeta x, [])
 let lookup (Ix l : index) (env : env) : value = List.nth env l
 let extend_env (v : value) (env : env) : env = v :: env
+let extend_spine (v : value) (s : spine) : spine = v :: s

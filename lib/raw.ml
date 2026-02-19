@@ -9,4 +9,5 @@ and term =
   | Let of name * ty * term * term
   | Universe
   | Pi of name * term * term
+  | Hole
 [@@deriving show]

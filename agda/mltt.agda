@@ -10,16 +10,16 @@ J : {A : Set}
     {x y : A}
     (p : x ≡ y)
     → C x y p
-J {A} C c {x} {.x} refl = c x
+J {A} C c {x} {.x} refl  =  c x
 
-sym : {A : Set} (x y : A) → x ≡ y → y ≡ x
-sym {A} x y x≡y = J C c x≡y
+sym : {A : Set} {x y : A} → x ≡ y → y ≡ x
+sym {A} x≡y  =  J C c x≡y
   where
     C : (x y : A) → x ≡ y → Set
-    C x y _ = y ≡ x
+    C x y _  =  y ≡ x
 
     c : (z : A) → C z z refl
-    c z = refl
+    c z  =  refl
 
 trans : {A : Set} {x y z : A} → x ≡ y → y ≡ z → x ≡ z
 trans {A} {x} {y} {z} p q = (J C c p) z q

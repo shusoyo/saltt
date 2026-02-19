@@ -1,14 +1,16 @@
 (library
  (name saltt)
  (modules
-  common
-  syntax
-  evaluation
-  raw
-  value
   parser
-  elaboration
+  common
+  raw
+  syntax
+  value
   context
+  meta
+  elaboration
+  evaluation
+  unification
   pretty)
  (libraries oscar)
  (preprocess

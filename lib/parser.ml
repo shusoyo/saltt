@@ -9,8 +9,7 @@ module P = struct
 end
 
 let single_line_comment : unit parser =
-  string "--" *> skip_while (( <> ) '\n')
-  <* (char '\n' *> return () <|> end_of_file)
+  string "--" *> skip_while (( <> ) '\n') <* (char '\n' *> return () <|> end_of_file)
 
 let ws = skip_many (single_line_comment <|> skip_while1 P.is_space)
 let lex p = p <* ws
@@ -19,10 +18,10 @@ let char c = lex (char c)
 let parens p = char '(' *> p <* char ')'
 let arrow = symbol "->" <|> symbol "→"
 let ( let* ) = Oscar.bind
-let keyword s = List.mem s [ "let"; "in"; "Type"; "Π"; "λ"; "U" ]
+let keyword s = List.mem s [ "let"; "Type"; "Π"; "λ"; "U" ]
 
 let parse_ident : name parser =
-  let* x = take_while1 (fun c -> P.is_alphanum c || Char.equal c '_') in
+  let* x = take_while1 (fun c -> P.is_alphanum c) in
   if keyword x then empty else lex (return x)
 
 let parse_keywrod s =
@@ -40,19 +39,21 @@ let term_parser =
   let mk_lam names body = List.fold_right (fun n b -> Lam (n, b)) names body in
   let mk_pair x y = (x, y) in
   let mk_pi name a body = Pi (name, a, body) in
+  let mk_hole _ = Hole in
   let lambda = symbol "\\" <|> symbol "λ" in
   fix (fun raw ->
     let parse_atom =
-      mk_var <$> parse_ident <|> (mk_universe <$> symbol "U") <|> parens raw
+      mk_var <$> parse_ident
+      <|> (mk_universe <$> symbol "U")
+      <|> (mk_hole <$> symbol "_")
+      <|> parens raw
     in
 
     let parse_spine = mk_app <$> parse_atom <*> many parse_atom in
 
     let parse_binder = parse_ident <|> symbol "_" in
 
-    let parse_lam =
-      mk_lam <$> lambda *> many1 parse_binder <*> char '.' *> raw
-    in
+    let parse_lam = mk_lam <$> lambda *> many1 parse_binder <*> char '.' *> raw in
 
     let parse_pi =
       (fun dom codom -> List.fold_right (fun (n, a) b -> mk_pi n a b) dom codom)
@@ -69,7 +70,7 @@ let term_parser =
     let parse_let =
       (fun n a b d -> mk_let n a b d)
       <$> parse_keywrod "let" *> parse_binder
-      <* char ':' <*> raw <* symbol "=" <*> raw <* parse_keywrod "in" <*> raw
+      <* char ':' <*> raw <* symbol "=" <*> raw <* symbol ";" <*> raw
     in
 
     parse_lam <|> parse_let <|> parse_pi <|> parse_fun_or_spine)

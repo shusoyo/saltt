@@ -8,8 +8,9 @@ let rec pretty_term names fmt = function
   | Var (Ix i) ->
       let name = try List.nth names i with _ -> "fvar_" ^ string_of_int i in
       Format.fprintf fmt "%s" name
-  | App (t, u) -> Format.fprintf fmt "(%a %a)" (pretty_term names) t (pretty_term names) u
-  | Lam (name, t) ->
+  | App (t, u, icit) ->
+      Format.fprintf fmt "(%a %a)" (pretty_term names) t (pretty_term names) u
+  | Lam (name, icit, t) ->
       let name = fresh_name names name in
       Format.fprintf fmt "λ%s. %a" name (pretty_term (name :: names)) t
   | Let (name, ty, t, u) ->
@@ -19,24 +20,31 @@ let rec pretty_term names fmt = function
         (pretty_term (name :: names))
         u
   | Universe -> Format.fprintf fmt "Type"
-  | Pi (name, ty, body) ->
-      let name = fresh_name names name in
-      Format.fprintf fmt "Π %s : %a.\n        %a" name (pretty_term names) ty
-        (pretty_term (name :: names))
-        body
+  | Pi (name, icit, ty, body) ->
+      if name = "_" then
+        Format.fprintf fmt "%a -> %a" (pretty_term names) ty
+          (pretty_term ("_" :: names))
+          body
+      else
+        let name = fresh_name names name in
+        Format.fprintf fmt "(%s : %a) -> %a" name (pretty_term names) ty
+          (pretty_term (name :: names))
+          body
   | Meta (MetaVar m) -> Format.fprintf fmt "? %d" m
   | InsertedMeta (MetaVar m, bds) -> Format.fprintf fmt "? %d" m
 
 let syntax_to_string t = Format.asprintf "%a" (pretty_term []) t
 
 let rec raw_to_string : Raw.term -> string = function
-  | Var x -> x
-  | App (t, u) -> "(" ^ raw_to_string t ^ " " ^ raw_to_string u ^ ")"
-  | Lam (x, t) -> Format.asprintf "(λ%s.%s)" x (raw_to_string t)
-  | Let (x, t, a, u) ->
-      Format.asprintf "let %s : %s = %s in\n%s" x (raw_to_string t) (raw_to_string a)
+  | Var name -> name
+  | App (t, u, _) -> Printf.sprintf "(%s %s)" (raw_to_string t) (raw_to_string u)
+  | Lam (name, _, t) -> Printf.sprintf "λ%s. %s" name (raw_to_string t)
+  | Let (name, ty, t, u) ->
+      Printf.sprintf "let %s : %s = %s in\n%s" name (raw_to_string ty) (raw_to_string t)
         (raw_to_string u)
   | Universe -> "Type"
-  | Pi (x, a, t) ->
-      Format.asprintf "((%s : %s) → %s)" x (raw_to_string a) (raw_to_string t)
-  | Hole -> Format.asprintf "_"
+  | Pi ("_", _, ty, body) ->
+      Printf.sprintf "%s -> %s" (raw_to_string ty) (raw_to_string body)
+  | Pi (name, _, ty, body) ->
+      Printf.sprintf "(%s : %s) -> %s" name (raw_to_string ty) (raw_to_string body)
+  | Hole -> "?"

@@ -1,18 +1,16 @@
 open Common
 
 (** one to one correspond to [env] *)
-type bd = Bound | Defined
 
-and meta_var = MetaVar of int
-and t_ty = term
+type sty = term
 
 and term =
   | Var of index
-  | Lam of name * term
-  | App of term * term
+  | Lam of name * implicit * term
+  | App of term * term * implicit
   | Universe
-  | Pi of name * t_ty * term
-  | Let of name * t_ty * term * term
+  | Pi of name * implicit * sty * term
+  | Let of name * sty * term * term
   | Meta of meta_var
   | InsertedMeta of meta_var * bd list
 [@@deriving show]

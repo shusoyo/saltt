@@ -8,6 +8,28 @@ open Unification
 module R = Raw
 
 let ( let* ) = Result.bind
+let ( <$> ) = Result.map
+
+let rec insert' ctx ((t, t_ty) : term * ty) =
+  match force t_ty with
+  | VPi (x, Implicit, param_ty, body_ty_clos) ->
+      let m = fresh_meta ctx in
+      let m_val = eval ctx.env m in
+      insert' ctx (App (t, m, Implicit), body_ty_clos $$ m_val)
+  | _ -> (t, t_ty)
+
+let rec insert ctx (t, t_ty) =
+  match (t, t_ty) with Lam (_, Implicit, _), _ -> (t, t_ty) | _ -> insert' ctx (t, t_ty)
+
+let rec insert_until_name ctx name ((t, t_ty) : term * ty) : (term * ty, string) result =
+  match force t_ty with
+  | VPi (x, Implicit, param_ty, body_ty_clos) ->
+      if x = name then Ok (t, t_ty)
+      else
+        let m = fresh_meta ctx in
+        let m_val = eval ctx.env m in
+        insert_until_name ctx name (App (t, m, Implicit), body_ty_clos $$ m_val)
+  | _ -> Error "Can't meet a Explicit Pi with this function"
 
 (*
   bidirectional algorithm:
@@ -16,18 +38,28 @@ let ( let* ) = Result.bind
     use infer if the type is unknown
 *)
 
-let rec check_type ctx (raw : R.term) (ty : ty) : (term, string) result =
-  match (raw, force ty) with
+(** [check_type ctx raw_term expected_type] checks if [raw_term] has type [expected_type]
+    under context [ctx]. Returns the elaborated term if successful, or an error message.
+    This function implements the bidirectional checking judgment [check: Γ ⊢ t ⇐ A]. *)
+let rec check_type ctx (raw_term : R.term) (expected_type : ty) : (term, string) result =
+  match (raw_term, force expected_type) with
   (*    
     check lambda is Pi, rule:
       Γ, x : A ⊢ a ⇐ B
       ------------------------
       (\x. a) ⇐ ((x : A) → B) 
   *)
-  | R.Lam (x, body), VPi (_, x_type, body_ty_clos) ->
-      let ctx' = bind x x_type ctx in
-      let* res = check_type ctx' body (body_ty_clos $$ vvar ctx.level) in
-      Ok (Lam (x, res))
+  | R.Lam (x, icit, body_raw), VPi (x', icit', param_type, body_ty_clos)
+    when Either.fold
+           ~left:(fun name -> name = x' && icit' = Implicit) (* check \{x = y}. a *)
+           ~right:(( = ) icit') icit ->
+      let ctx' = bind x param_type ctx in
+      let* body_term = check_type ctx' body_raw (body_ty_clos $$ vvar ctx.level) in
+      Ok (Lam (x, icit', body_term))
+  | raw_term, VPi (x, Implicit, param_type, body_ty_clos) ->
+      let ctx' = new_binder x param_type ctx in
+      let* body_term = check_type ctx' raw_term (body_ty_clos $$ vvar ctx.level) in
+      Ok (Lam (x, Implicit, body_term))
   (*
     check Let-statement: 'let x : A = t in u' is 'B'
       Γ ⊢ A ⇐ Universe
@@ -36,51 +68,66 @@ let rec check_type ctx (raw : R.term) (ty : ty) : (term, string) result =
       ----------------------
       let x : A = t in u ⇐ B
   *)
-  | R.Let (x, a, t, u), b_ty ->
-      let* a_tm = check_type ctx a VUniverse in
-      let a_val = eval ctx.env a_tm in
-      let* t_tm = check_type ctx t a_val in
-      let t_val = eval ctx.env t_tm in
-      let ctx' = define x t_val a_val ctx in
-      let* u_tm = check_type ctx' u b_ty in
-      Ok (Let (x, a_tm, t_tm, u_tm))
+  | R.Let (x, type_raw, val_raw, body_raw), expected_body_type ->
+      let* type_term = check_type ctx type_raw VUniverse in
+      let type_val = eval ctx.env type_term in
+      let* val_term = check_type ctx val_raw type_val in
+      let val_eval = eval ctx.env val_term in
+      let ctx' = define x val_eval type_val ctx in
+      let* body_term = check_type ctx' body_raw expected_body_type in
+      Ok (Let (x, type_term, val_term, body_term))
   (* Hole *)
-  | R.Hole, _ -> fresh_meta ctx
+  | R.Hole, _ -> Ok (fresh_meta ctx)
   (* 
-    if term is not checkable, switch to infer mode
+    if term is not checkable, switch to infer mode (CHANGE THE DIRECTION)
       Γ ⊢ a ⇒ B
       B ≡ A
       ---------
       Γ ⊢ a ⇐ A 
+
+      why `insert` in this branch? 
+        consider without let-generalization, for example:
+
+          let id = \x. x : {A : Universe} -> A -> A in
+          let f : _ = id in
+          f
+
+        expectedly, `f` should have type `f = (id ?α) : ?α -> ?α` rather than `{A : Universe} -> A -> A`.
+        此处 f 单态化了，insert 了隐式参数 (这是大多数依赖类型实现的选择)
   *)
-  | raw, expected -> (
-      let* tm, inferred = infer_type ctx raw in
-      match unify ctx.level inferred expected with
-      | Ok () -> Ok tm
+  | raw_term, expected_type ->
+      let* inferred_term, inferred_type = insert ctx <$> infer_type ctx raw_term in
+      begin match unify ctx.level inferred_type expected_type with
+      | Ok () -> Ok inferred_term
       | Error s ->
-          let inferred_tm = quote ctx.level inferred in
-          let expected_tm = quote ctx.level expected in
-          report ctx raw
+          let inferred_type_tm = quote ctx.level inferred_type in
+          let expected_type_tm = quote ctx.level expected_type in
+          report ctx raw_term
             (Format.asprintf
                "@[<v>type mismatch(can't unify):@,\
                \  @[<v 2>expected type:@ %a@]@,\
                \  @[<v 2>inferred type:@ %a@]@]"
-               pp_term expected_tm pp_term inferred_tm))
+               pp_term expected_type_tm pp_term inferred_type_tm)
+      end
 
-and infer_type (ctx : ctx) (raw : R.term) : (term * ty, string) result =
-  match raw with
+(** [infer_type ctx raw_term] infers the type of [raw_term] under context [ctx]. Returns a
+    pair of the elaborated term and its inferred type if successful, or an error message.
+    This function implements the bidirectional inference judgment [infer: Γ ⊢ t ⇒ A]. *)
+and infer_type (ctx : ctx) (raw_term : R.term) : (term * ty, string) result =
+  match raw_term with
   (*
     I-Var : x
       x : A ∈ Γ
       ---------
       Γ ⊢ x ⇒ A
   *)
-  | R.Var name -> (
-      let check_name i (k, v) = if k = name then Some (i, v) else None in
-      let res = List.find_mapi check_name ctx.types in
-      match res with
-      | Some (i, ty) -> Ok (Var (Ix i), ty)
-      | None -> report ctx raw ("var not found: " ^ name))
+  | R.Var name ->
+      ctx.types
+      |> List.find_mapi (fun index (var_name, name_origin, var_type) ->
+        match name_origin with
+        | Source when var_name = name -> Some (Var (Ix index), var_type)
+        | _ -> None)
+      |> Option.to_result ~none:(report' ctx raw_term ("var not found: " ^ name))
   (*
     I-universe :
 
@@ -88,6 +135,13 @@ and infer_type (ctx : ctx) (raw : R.term) : (term * ty, string) result =
       Γ ⊢ Universe ⇒ Universe
   *)
   | R.Universe -> Ok (Universe, VUniverse)
+  | R.Lam (x, Right i, body_raw) ->
+      let param_type = eval ctx.env (fresh_meta ctx) in
+      let* body_term, body_type = infer_type (bind x param_type ctx) body_raw in
+      let body_clos = Closure (ctx.env, quote (next_level ctx.level) body_type) in
+      Ok (Lam (x, i, body_term), VPi (x, i, param_type, body_clos))
+  | R.Lam (x, Left _, body_raw) ->
+      Error "Can't infer type of lambda with implicit named parameter"
   (* 
     I-App
       Γ ⊢ f ⇒ (x : A) → B
@@ -95,36 +149,42 @@ and infer_type (ctx : ctx) (raw : R.term) : (term * ty, string) result =
       -------------------
       Γ ⊢ f a ⇒ B[a/x]
   *)
-  | R.App (f, a) ->
-      let* f_tm, f_ty = infer_type ctx f in
-      begin match force f_ty with
-      | VPi (_, x_type, body_clos) ->
-          let* a_tm = check_type ctx a x_type in
-          Ok (App (f_tm, a_tm), body_clos $$ eval ctx.env a_tm)
-      | f_ty ->
-          let* x_ty_tm = fresh_meta ctx in
-          let x_ty = eval ctx.env x_ty_tm in
-          let* body_tm = fresh_meta (bind "x" x_ty ctx) in
-          let body_clos = Closure (ctx.env, body_tm) in
-          begin match unify ctx.level (VPi ("x", x_ty, body_clos)) f_ty with
+  | R.App (func_raw, arg_raw, icit) ->
+      let* func_term, func_type = infer_type ctx func_raw in
+      let* i, func_term, func_type =
+        match icit with
+        | Left name ->
+            let* f_term, f_type = insert_until_name ctx name (func_term, func_type) in
+            Ok (Implicit, f_term, f_type)
+        | Right Implicit -> Ok (Implicit, func_term, func_type)
+        | Right Explicit ->
+            (* Why insert'''' ? *)
+            let func_term, func_type = insert' ctx (func_term, func_type) in
+            Ok (Explicit, func_term, func_type)
+      in
+      begin match force func_type with
+      | VPi (_, i', param_type, body_clos) ->
+          if i <> i' then
+            report ctx raw_term "TypeInference: (R.App branch) implicit/explicit mismatch"
+          else
+            let* arg_term = check_type ctx arg_raw param_type in
+            Ok (App (func_term, arg_term, i), body_clos $$ eval ctx.env arg_term)
+      | _ ->
+          let param_type = eval ctx.env (fresh_meta ctx) in
+          let body_clos = Closure (ctx.env, fresh_meta (bind "x" param_type ctx)) in
+          begin match unify ctx.level (VPi ("x", i, param_type, body_clos)) func_type with
           | Ok () ->
-              let* a_tm = check_type ctx a x_ty in
-              Ok (App (f_tm, a_tm), body_clos $$ eval ctx.env a_tm)
+              let* arg_term = check_type ctx arg_raw param_type in
+              Ok (App (func_term, arg_term, i), body_clos $$ eval ctx.env arg_term)
           | Error s ->
-              report ctx raw
+              report ctx raw_term
                 (Format.asprintf
                    "@[<v>TypeInference: (R.App branch) type mismatch(can't unify):@,\
                    \  @[<v 2>expected type:@ ((x : ?A) -> B) @]@,\
                    \  @[<v 2>inferred type:@ %a@]@]"
-                   pp_term (quote ctx.level f_ty))
+                   pp_term (quote ctx.level func_type))
           end
       end
-  | R.Lam (x, body) ->
-      let* x_ty_meta = fresh_meta ctx in
-      let x_ty = eval ctx.env x_ty_meta in
-      let* body_tm, body_ty = infer_type (bind x x_ty ctx) body in
-      let body_ty_syntax = quote (next_level ctx.level) body_ty in
-      Ok (Lam (x, body_tm), VPi (x, x_ty, Closure (ctx.env, body_ty_syntax)))
   (*
     I-Pi
       Γ ⊢ A ⇐ Universe
@@ -132,11 +192,11 @@ and infer_type (ctx : ctx) (raw : R.term) : (term * ty, string) result =
       --------------------------
       Γ ⊢ (x : A) → B ⇒ Universe
   *)
-  | R.Pi (x, a, body) ->
-      let* a_tm = check_type ctx a VUniverse in
-      let ctx' = bind x (eval ctx.env a_tm) ctx in
-      let* body_tm = check_type ctx' body VUniverse in
-      Ok (Pi (x, a_tm, body_tm), VUniverse)
+  | R.Pi (x, i, param_type_raw, body_raw) ->
+      let* param_type_term = check_type ctx param_type_raw VUniverse in
+      let ctx' = bind x (eval ctx.env param_type_term) ctx in
+      let* body_term = check_type ctx' body_raw VUniverse in
+      Ok (Pi (x, i, param_type_term, body_term), VUniverse)
   (*
     I-Let
       Γ ⊢ A ⇐ Universe
@@ -145,16 +205,16 @@ and infer_type (ctx : ctx) (raw : R.term) : (term * ty, string) result =
       --------------------------
       Γ ⊢ let x : A = t in u ⇒ B
   *)
-  | R.Let (x, x_ty, t, u) ->
-      let* x_ty_tm = check_type ctx x_ty VUniverse in
-      let x_ty_val = eval ctx.env x_ty_tm in
-      let* t_tm = check_type ctx t x_ty_val in
-      let t_val = eval ctx.env t_tm in
-      let ctx' = define x t_val x_ty_val ctx in
-      let* u_tm, u_ty = infer_type ctx' u in
-      Ok (Let (x, x_ty_tm, t_tm, u_tm), u_ty)
+  | R.Let (x, type_raw, val_raw, body_raw) ->
+      let* type_term = check_type ctx type_raw VUniverse in
+      let type_val = eval ctx.env type_term in
+      let* val_term = check_type ctx val_raw type_val in
+      let val_eval = eval ctx.env val_term in
+      let ctx' = define x val_eval type_val ctx in
+      let* body_term, body_type = infer_type ctx' body_raw in
+      Ok (Let (x, type_term, val_term, body_term), body_type)
   | Hole ->
-      let* m_ty_meta = fresh_meta ctx in
-      let m_ty = eval ctx.env m_ty_meta in
-      let* m_tm = fresh_meta ctx in
-      Ok (m_tm, m_ty)
+      let meta_type_term = fresh_meta ctx in
+      let meta_type = eval ctx.env meta_type_term in
+      let meta_term = fresh_meta ctx in
+      Ok (meta_term, meta_type)

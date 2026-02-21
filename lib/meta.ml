@@ -1,6 +1,7 @@
 open Value
 open Syntax
 open Context
+open Common
 
 type meta_entry = Solved of value | Unsolved
 
@@ -20,4 +21,4 @@ let fresh_meta (ctx : ctx) =
   let m = MetaVar !next_meta in
   incr next_meta;
   Hashtbl.add mcxt m Unsolved;
-  Ok (InsertedMeta (m, ctx.bds))
+  InsertedMeta (m, ctx.bds)

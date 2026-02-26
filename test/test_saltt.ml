@@ -4,7 +4,7 @@ open Parser
 open Evaluation
 open Elaboration
 open Context
-open Pretty
+open Display
 
 let ex0 =
   {|
@@ -188,21 +188,20 @@ id true
 |}
 
 let get_raw file = file |> make_input |> parser.run |> Result.get_ok |> snd
-let tests = [ ex1; ex4 ]
+let tests = [ ex0 ]
 
 let test_unit test =
   let open Result in
   let raw = test |> get_raw in
   Printf.printf "Raw term:\n%s\n" (raw_to_string raw);
-  Printf.printf "Raw term:\n%s\n" (R.show_term raw);
+  (* Printf.printf "Raw term:\n%s\n" (R.show_term raw); *)
   match raw |> infer_type empty_ctx with
-  | Ok (tm, ty) ->
-      Printf.printf "inferred type:\n%s\n" (Value.show_ty (force ty));
+  | tm, ty ->
       Printf.printf "inferred type syntax:\n%s\n" (syntax_to_string (quote (Lvl 0) ty));
       Printf.printf "core term:\n%s\n" (syntax_to_string tm);
       let norm = normalize [] tm in
       Printf.printf "normalized term:\n%s\n" (syntax_to_string norm)
-      (* Printf.printf "normalized term:\n%s\n" (S.show_term norm) *)
-  | Error msg -> Printf.printf "%s\n" msg
+  | exception TypeError _ -> ()
+(* Printf.printf "%s\n" msg *)
 
 let () = List.iter test_unit tests

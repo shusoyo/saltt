@@ -41,14 +41,3 @@ let define (x : name) (t : value) (a : ty) (ctx : ctx) : ctx =
     level = next_level ctx.level;
     bds = Defined :: ctx.bds;
   }
-
-let report ctx raw msg =
-  Error
-    (Format.asprintf
-       {|@[<v>@{<red>Error:@}@,  %s@,@,@[<v 2>Raw term:@,%a@]@,@,@[<v 2>Ctx:@,%a@]@]|} msg
-       Raw.pp_term raw pp_ctx ctx)
-
-let report' ctx raw msg =
-  Format.asprintf
-    {|@[<v>@{<red>Error:@}@,  %s@,@,@[<v 2>Raw term:@,%a@]@,@,@[<v 2>Ctx:@,%a@]@]|} msg
-    Raw.pp_term raw pp_ctx ctx

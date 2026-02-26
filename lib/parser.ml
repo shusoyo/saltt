@@ -105,3 +105,4 @@ let term_parser =
     parse_lam <|> parse_let <|> parse_pi <|> parse_fun_or_spine)
 
 let parser = ws *> term_parser <* end_of_file
+let parse s = parser.run (make_input s)

@@ -14,7 +14,6 @@ type error = display list
 exception TypeError of error
 exception UnifyError of error
 
-(* ── error rendering ───────────────────────────────────── *)
 let rec fresh_name (names : name list) (base : name) : name =
   if List.mem base names then fresh_name names (base ^ "'") else base
 

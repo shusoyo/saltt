@@ -50,7 +50,7 @@ let ( let* ) = Oscar.bind
 *)
 
 let is_keyword s =
-  List.mem s [ "let"; "Type"; "λ"; "U"; "theorem"; "lemma"; "axiom"; "def"; "in" ]
+  List.mem s [ "let"; "Type"; "λ"; "U"; "Type"; "theorem"; "lemma"; "axiom"; "def"; "in" ]
 
 let parse_ident : name parser =
   let* x = take_while1 (fun c -> P.is_alphanum c) in
@@ -75,7 +75,7 @@ let term_parser =
     (* U (Universe), x (identifier), t (raw term) *)
     let parse_atom =
       mk_var <$> parse_ident
-      <|> (mk_universe <$> char 'U')
+      <|> (mk_universe <$> (symbol "U" <|> symbol "Type"))
       <|> (mk_hole <$> char '_')
       <|> parens raw
     in
@@ -141,19 +141,18 @@ let def_parser =
   (fun n x y -> Definition (n, Option.value x ~default:Hole, y))
   <$> parse_keywrod "def" *> parse_ident
   <*> optional (char ':' *> term_parser)
-  <* symbol "=" <*> term_parser <* dot
+  <* symbol "=" <*> term_parser
 
 let thm_parser =
   (fun n x y -> Theorem (n, Option.value x ~default:Hole, y))
   <$> (parse_keywrod "theorem" <|> parse_keywrod "lemma") *> parse_ident
   <*> optional (char ':' *> term_parser)
-  <* symbol "=" <*> term_parser <* dot
+  <* symbol "=" <*> term_parser
 
 let axiom_parser =
   (fun n x -> Axiom (n, x))
   <$> parse_keywrod "axiom" *> parse_ident
   <*> char ':' *> term_parser
-  <* dot
 
 let top_level = many (axiom_parser <|> thm_parser <|> def_parser)
 let parser = ws *> top_level <* end_of_file

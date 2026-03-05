@@ -7,6 +7,7 @@ type command =
   | Definition of name * Raw.ty * Raw.term
   | Axiom of name * Raw.term
   | Theorem of name * Raw.ty * Raw.term
+[@@deriving show]
 (* | Check of Raw.term
   | Eval of Raw.term *)
 

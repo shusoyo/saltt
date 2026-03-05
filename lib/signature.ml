@@ -1,5 +1,4 @@
 open Common
-module R = Raw
 open Value
 
 type definition_status = Defined of value | Postulate | Opaque of value

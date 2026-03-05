@@ -26,6 +26,7 @@ let read_file filename =
 
 let check_source src =
   let commands = parse_commands src in
+  (* List.iter (fun cmd -> Printf.printf "%s\n" (show_command cmd)) commands; *)
   process_commands commands
 
 let check_file filename =

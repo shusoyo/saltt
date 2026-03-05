@@ -1,4 +1,40 @@
-axiom N : U.
+def id : {A : U} → A → A = 
+  \x. x 
 
-def id : {A : U} -> A -> A = 
-  \x. x .
+def const : {A B} → A → B → A = 
+  \x y. x
+
+def group1 : {A B : U}(x y z : A) → B → B = 
+  \x y z b. b
+
+def group2 : {A B}(x y z : A) → B → B = 
+  \x y z b. b
+
+def the : (A : _) → A → A = 
+  \_ x. x
+
+def Bool : U = (B : _) → B → B → B
+def true : Bool = 
+  \B t f. t
+def false : Bool = 
+  \B t f. f
+def not : Bool → Bool = 
+  \b B t f. b B f t
+
+def Nat : U = (N : U) → (N → N) → N → N
+def mul : Nat → Nat → Nat = 
+  \a b N s z. a _ (b _ s) z
+def ten : Nat = 
+  \N s z. s (s (s (s (s (s (s (s (s (s z)))))))))
+def hundred = mul ten ten
+
+-- Leibniz equality
+def Eq : {A} → A → A → U = 
+  \{A} x y. (P : A → U) → P x → P y
+def refl : {A}{x : A} → Eq x x = 
+  \_ px. px
+
+theorem sym : {A x y} → Eq {A} x y → Eq y x = 
+  \{A}{x}{y} p. p (\y. Eq y x) refl
+
+def test = the (Eq (mul ten ten) hundred) refl

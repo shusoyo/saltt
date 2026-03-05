@@ -7,13 +7,12 @@ type types = (name * name_origin * ty) list [@@deriving show]
 
 (* Elaboration context *)
 type ctx = {
-  env : env; (* evaluation *)
-  types : types; (* raw name lookup, preety printing *)
-  level : level; (* unification *)
+  env : env; (* ρ *)
+  types : types; (* Γ *)
+  level : level;
   bds : bd list; (* fresh meta creation *)
 }
 [@@deriving show]
-(** Elaboration context *)
 
 let empty_ctx : ctx = { env = []; types = []; level = Lvl 0; bds = [] }
 

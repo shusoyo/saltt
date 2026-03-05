@@ -6,6 +6,7 @@ open Meta
 open Common
 open Unification
 open Display
+open Errors
 module R = Raw
 
 let type_error ds = raise (TypeError ds)
@@ -126,7 +127,12 @@ and infer_type (ctx : ctx) (raw_term : R.term) : term * ty =
           | _ -> None)
       with
       | Some r -> r
-      | None -> type_error [ DS ("var not found: " ^ name) ]
+      (* Fallback: search global signature *)
+      | None -> (
+          try
+            let entry = Signature.lookup_global name in
+            (Global name, entry.ty)
+          with Not_found -> type_error [ DS ("Undefined variable: " ^ name) ])
     end
   (*
     I-universe :

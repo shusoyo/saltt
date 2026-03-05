@@ -1,25 +1,19 @@
 open Saltt
-open Common
-open Context
-open Elaboration
-open Parser
-open Display
-open Evaluation
+open Errors
 
 let prog_name = Filename.basename Sys.argv.(0)
 
 (* ── help messages ─────────────────────────────────────── *)
 
-let usage = Printf.sprintf "usage: %s <command> [<file>]\n" prog_name
+let usage = Printf.sprintf "usage: %s <command> [<args>]\n" prog_name
 
 let general_help =
   String.concat "\n"
     [
       usage;
       "commands:";
-      "  elab <file>   elaborate the file and print the core term";
-      "  nf   <file>   elaborate, normalise, and print the normal form with its type";
-      "  type <file>   elaborate and print the type";
+      "  check <file>  check and elaborate all definitions in the file";
+      "  toplevel      start interactive toplevel";
       "  help          show this message";
       "";
       "options:";
@@ -28,49 +22,22 @@ let general_help =
 
 let command_help cmd =
   match cmd with
-  | "elab" ->
+  | "check" ->
       String.concat "\n"
         [
-          Printf.sprintf "usage: %s elab <file>" prog_name;
+          Printf.sprintf "usage: %s check <file>" prog_name;
           "";
-          "Read & elaborate expression from <file>, print the elaborated core term.";
+          "Read and type-check all definitions, axioms, and theorems from <file>.";
         ]
-  | "nf" ->
+  | "toplevel" | "repl" ->
       String.concat "\n"
         [
-          Printf.sprintf "usage: %s nf <file>" prog_name;
+          Printf.sprintf "usage: %s toplevel" prog_name;
           "";
-          "Read & elaborate expression from <file>, normalise it,";
-          "then print the normal form together with its type.";
-        ]
-  | "type" ->
-      String.concat "\n"
-        [
-          Printf.sprintf "usage: %s type <file>" prog_name;
-          "";
-          "Read & elaborate expression from <file>, print its type.";
+          "Start interactive mode. Enter commands ending with '.'";
+          "Special commands: :q, :quit, :help";
         ]
   | _ -> general_help
-
-(* ── utilities ─────────────────────────────────────────── *)
-
-let read_file filename =
-  let ic = open_in filename in
-  let n = in_channel_length ic in
-  let s = really_input_string ic n in
-  close_in ic;
-  s
-
-let get_raw src = src |> Oscar.make_input |> parser.run |> Result.get_ok |> snd
-
-let run_elab filename =
-  prerr_endline (read_file filename);
-  let raw = get_raw (read_file filename) in
-  infer_type empty_ctx raw
-
-let type_error ds = raise (TypeError ds)
-
-(* ── error helpers ─────────────────────────────────────── *)
 
 let die fmt =
   Printf.ksprintf
@@ -86,13 +53,14 @@ let die_usage fmt =
       exit 1)
     fmt
 
+(* ── run ───────────────────────────────────────────────── *)
+
+let run_check filename = Repl.check_file filename
+let run_toplevel () = Repl.run ~help_message:(command_help "toplevel") ()
+
 (* ── argument parsing ──────────────────────────────────── *)
 
-type cmd =
-  | Elab of string
-  | Nf of string
-  | Type of string
-  | Help of string option (* optional subcommand *)
+type cmd = Check of string | Toplevel | Help of string option
 
 let is_help_flag s = s = "-h" || s = "--help"
 
@@ -101,7 +69,7 @@ let parse_args argv =
   let args = Array.to_list argv |> List.tl in
   (* strip leading help flags *)
   match args with
-  | [] -> Help None
+  | [] -> Toplevel
   | [ flag ] when is_help_flag flag -> Help None
   | [ "help" ] -> Help None
   | [ "help"; sub ] -> Help (Some sub)
@@ -109,11 +77,10 @@ let parse_args argv =
       (* if the subcommand itself is followed by --help, show command help *)
       match (cmd, rest) with
       | _, [ flag ] when is_help_flag flag -> Help (Some cmd)
-      | ("elab" | "nf" | "type"), [] -> die_usage "%s: missing <file> argument" cmd
-      | ("elab" | "nf" | "type"), [ _; _ ] -> die_usage "%s: too many arguments" cmd
-      | "elab", [ file ] -> Elab file
-      | "nf", [ file ] -> Nf file
-      | "type", [ file ] -> Type file
+      | "check", [] -> die_usage "%s: missing <file> argument" cmd
+      | "check", [ _; _ ] -> die_usage "%s: too many arguments" cmd
+      | "check", [ file ] -> Check file
+      | ("toplevel" | "repl"), [] -> Toplevel
       | unknown, _ -> die_usage "unknown command '%s'" unknown)
 
 (* ── dispatch ──────────────────────────────────────────── *)
@@ -121,23 +88,14 @@ let parse_args argv =
 let run cmd =
   match cmd with
   | Help sub -> print_endline (command_help (Option.value sub ~default:""))
-  | Elab filename ->
-      let tm, _ty = run_elab filename in
-      Printf.printf "%s\n" (syntax_to_string tm)
-  | Nf filename ->
-      let tm, ty = run_elab filename in
-      let norm = normalize [] tm in
-      Printf.printf "%s\n" (syntax_to_string norm);
-      Printf.printf "  :\n%s\n" (syntax_to_string (quote empty_ctx.level ty))
-  | Type filename ->
-      let _tm, ty = run_elab filename in
-      Printf.printf "%s\n" (syntax_to_string (quote empty_ctx.level ty))
+  | Check filename -> run_check filename
+  | Toplevel -> run_toplevel ()
 
 (* ── entry point ───────────────────────────────────────── *)
 
 let () =
   let cmd = parse_args Sys.argv in
   try run cmd
-  with TypeError err ->
-    Printf.eprintf "%s: %s\n" prog_name (error_to_string err);
+  with exn when Errors.is_domain_error exn ->
+    Printf.eprintf "%s: %s\n" prog_name (Errors.exn_to_string exn);
     exit 1

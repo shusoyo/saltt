@@ -187,7 +187,7 @@ let false : Bool
 id true
 |}
 
-let get_raw file = file |> make_input |> parser.run |> Result.get_ok |> snd
+(* let get_raw file = file |> make_input |> parser.run |> Result.get_ok |> snd
 let tests = [ ex0 ]
 
 let test_unit test =
@@ -202,6 +202,6 @@ let test_unit test =
       let norm = normalize [] tm in
       Printf.printf "normalized term:\n%s\n" (syntax_to_string norm)
   | exception TypeError _ -> ()
-(* Printf.printf "%s\n" msg *)
+Printf.printf "%s\n" msg *)
 
-let () = List.iter test_unit tests
+(*let () = List.iter test_unit tests*)

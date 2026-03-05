@@ -11,6 +11,10 @@
   elaboration
   evaluation
   unification
+  errors
+  signature
+  toplevel
+  repl
   display)
  (libraries oscar)
  (preprocess

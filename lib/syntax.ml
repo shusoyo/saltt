@@ -6,6 +6,7 @@ type sty = term
 
 and term =
   | Var of index
+  | Global of name
   | Lam of name * implicit * term
   | App of term * term * implicit
   | Universe

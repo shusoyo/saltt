@@ -1,23 +1,11 @@
 open Common
-open Evaluation
 open Syntax
-
-type display =
-  | DS of string
-  | DR of Raw.term
-  | DC of Context.ctx
-  | DT of term
-  | DV of Value.value
-
-type error = display list
-
-exception TypeError of error
-exception UnifyError of error
 
 let rec fresh_name (names : name list) (base : name) : name =
   if List.mem base names then fresh_name names (base ^ "'") else base
 
 let rec pretty_term names = function
+  | Global name -> name
   | Var (Ix i) ->
       let name = try List.nth names i with _ -> "fvar_" ^ string_of_int i in
       Printf.sprintf "%s" name
@@ -57,13 +45,3 @@ let rec raw_to_string : Raw.term -> string = function
   | Pi (name, _, ty, body) ->
       Printf.sprintf "(%s : %s) -> %s" name (raw_to_string ty) (raw_to_string body)
   | Hole -> "?"
-
-let display_to_string = function
-  | DS s -> s
-  | DR r -> raw_to_string r
-  | DT t -> syntax_to_string t
-  | DV v -> syntax_to_string (quote (Lvl 0) v)
-  | DC _ -> "<ctx>"
-
-let error_to_string (err : error) =
-  err |> List.map display_to_string |> String.concat "\n  "

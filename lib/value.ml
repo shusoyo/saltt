@@ -17,7 +17,7 @@ and spine = (value * implicit) list
 
 (* value *)
 and ty = value
-and neutral = NVar of level | NMeta of meta_var
+and neutral = NVar of level | NMeta of meta_var | NGlobal of name
 
 and value =
   | VNe of neutral * spine
@@ -28,6 +28,8 @@ and value =
 
 let vvar x = VNe (NVar x, [])
 let vmeta x = VNe (NMeta x, [])
+let vglobal x = VNe (NGlobal x, [])
 let lookup (Ix l : index) (env : env) : value = List.nth env l
 let extend_env (v : value) (env : env) : env = v :: env
 let extend_spine (v : value * implicit) (s : spine) : spine = v :: s
+let empty_env : env = []

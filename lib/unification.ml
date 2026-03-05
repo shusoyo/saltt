@@ -5,8 +5,11 @@ open Syntax
 open Value
 open Evaluation
 open Display
+open Signature
+open Errors
 
 (*
+  unification algorithm:
   - 必须是变量: spine 里的每一项都必须是局部变量 (VVar)。
     不能写 ?α (f x) = ...，只能写 ?α x = ...。
 
@@ -43,7 +46,7 @@ let lift (pren : partial_renaming) : partial_renaming =
     ren = LvlMap.add pren.cod pren.dom pren.ren;
   }
 
-let unify_error e = raise (UnifyError (DS "Unify Error" :: e))
+let unify_error e = raise (UnifyError e)
 
 (** [invert gamma spine] return the spine⁻¹ (pren (Γ Δ))
     - spine is map Δ → Γ (spine is [value list], key is list index (from 0), value is
@@ -75,13 +78,14 @@ let rename (m : meta_var) (pren : partial_renaming) (v : value) : term =
     | VNe (NMeta m', sp) ->
         (* checking for "m" occurrences *)
         if m' = m then
-          unify_error [ DS "Rename failed, Occurs check failed, recursive metavariable" ]
+          unify_error [ DS "Renaming Occurs check failed: recursive metavariable" ]
         else go_spine pren (Meta m') sp
     | VNe (NVar l, sp) -> begin
         match LvlMap.find_opt l pren.ren with
         | Some l' -> go_spine pren (Var (index_of_level pren.dom l')) sp
         | None -> unify_error [ DS "Rename failed, Variable not in scope" ]
       end
+    | VNe (NGlobal name, sp) -> go_spine pren (Global name) sp
     | VLam (name, icit, f_clos) ->
         let t = go (lift pren) (f_clos $$ vvar pren.cod) in
         Lam (name, icit, t)
@@ -109,6 +113,7 @@ let solve (gamma : level) (mv : meta_var) (spine : spine) (rhs : value) : unit =
 
 let rec unify (l : level) (v1 : value) (v2 : value) : unit =
   match (force v1, force v2) with
+  (* β-reduction: both v1, v2 are values that have been β-reducted *)
   | VLam (_, _, a_body_clos), VLam (_, _, b_body_clos) ->
       unify (next_level l) (a_body_clos $$ vvar l) (b_body_clos $$ vvar l)
   (* η-unify *)
@@ -123,15 +128,23 @@ let rec unify (l : level) (v1 : value) (v2 : value) : unit =
       unify l a_ty b_ty;
       unify (next_level l) (a_clos $$ vvar l) (b_clos $$ vvar l)
   (* Neutral value *)
-  | VNe (x_nv, x_sp), VNe (y_nv, y_sp) when x_nv = y_nv ->
-      let judge (x, _) (y, _) =
-        match unify l x y with () -> true | exception TypeError _ -> false
-      in
-      begin match List.for_all2 judge x_sp y_sp with
-      | true -> ()
-      | false -> raise (TypeError [ DS "Unify Error: spine mismatch" ])
-      | exception Invalid_argument err -> raise (TypeError [ DS ("Unify Error: " ^ err) ])
-      end
+  (* Directly compare  
+      - var judgement
+      - meta judgement
+      - Global judgement (opaque and postulate global var compare name directly)
+        `Defined` var have been reducted in eval, so dont't need process. *)
+  | VNe (x_nv, x_sp), VNe (y_nv, y_sp) when x_nv = y_nv -> unify_spine l x_sp y_sp
+  (* attempt solve meta var *)
   | VNe (NMeta m, sp), t -> solve l m sp t
   | t, VNe (NMeta m, sp) -> solve l m sp t
   | _ -> unify_error [ DS "values do not match"; DV v1; DV v2 ]
+
+and unify_spine (l : level) (sp1 : spine) (sp2 : spine) : unit =
+  let judge (x, _) (y, _) =
+    match unify l x y with () -> true | exception UnifyError _ -> false
+  in
+  begin match List.for_all2 judge sp1 sp2 with
+  | true -> ()
+  | false -> unify_error [ DS "Unify Error: spine mismatch" ]
+  | exception Invalid_argument err -> unify_error [ DS ("Unify Error: " ^ err) ]
+  end

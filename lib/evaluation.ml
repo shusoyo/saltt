@@ -2,6 +2,10 @@ open Common
 open Value
 open Syntax
 open Meta
+open Display
+open Errors
+
+let eval_error ds = raise (EvalError ds)
 
 (** [closure (env, body_tm) $$ v] will update the [env] and [eval] `compute` the [body_tm]
 *)
@@ -19,30 +23,43 @@ and eval_meta (m : meta_var) : value =
   | Solved v -> v (* refine meta variable to value *)
   | Unsolved -> vmeta m
 
-and eval_app_bound_vars (env : env) (m : meta_var) (bds : bd list) : value =
+and eval_app_bds (env : env) (m : meta_var) (bds : bd list) : value =
   assert (List.length env = List.length bds);
   List.fold_right2
     (fun x y acc -> match y with Defined -> acc | Bound -> eval_app acc x Explicit)
     env bds (eval_meta m)
 
+(** [eval env tm] evaluate a term to Weak Head Normal Form *)
 and eval (env : env) (tm : term) : value =
   match tm with
-  | Var index -> lookup index env
+  | Global name ->
+      let entry = Signature.lookup_global name in
+      begin match entry.status with
+      | Signature.Postulate -> vglobal name
+      (* δ - reduction : eager reduction (Is this problemitic?) *)
+      | Signature.Defined v -> v
+      | Signature.Opaque v -> v
+      | exception Not_found -> eval_error [ DS ("Undefined global: " ^ name) ]
+      end
+  | Var index -> begin
+      try lookup index env with
+      | Failure s -> eval_error [ DS "Variable index out of bounds"; DS s ]
+      | Invalid_argument s -> eval_error [ DS "Variable index out of bounds"; DS s ]
+    end
   (* lazy: explicit closure *)
   | Lam (name, icit, body_tm) -> VLam (name, icit, Closure (env, body_tm))
-  (* lazy: body is explicit closure, a_type_tm is lazy_t  *)
   | Pi (name, icit, a_type_tm, body_tm) ->
       let a_type_val = eval env a_type_tm in
       VPi (name, icit, a_type_val, Closure (env, body_tm))
-  (* lazy: argument thunks, [a] must be lazy evaluated *)
   | App (f, a, icit) -> eval_app (eval env f) (eval env a) icit
   | Let (_, _, a_tm, body_tm) ->
       let a_val = eval env a_tm in
       eval (extend_env a_val env) body_tm
   | Universe -> VUniverse
   | Meta m -> eval_meta m
-  | InsertedMeta (m, bds) -> eval_app_bound_vars env m bds
+  | InsertedMeta (m, bds) -> eval_app_bds env m bds
 
+(* TODO: Can be optimized by using path compression (similar to the union-find set)? *)
 let rec force (v : value) : value =
   match v with
   | VNe (NMeta m, sp) -> begin
@@ -59,6 +76,7 @@ let rec quote (lvl : level) (value : value) : term =
       begin match head with
       | NVar x -> f (Var (index_of_level lvl x))
       | NMeta m -> f (Meta m)
+      | NGlobal name -> f (Global name)
       end
   | VLam (name, icit, f_clos) ->
       Lam (name, icit, quote (next_level lvl) (f_clos $$ vvar lvl))
